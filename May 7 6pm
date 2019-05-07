@@ -1,0 +1,127 @@
+```{r, eval=TRUE}
+amidata <- read.csv("amidata.csv")
+library(gam)
+library(car)
+na.convert.mean = function (frame) 
+{
+    vars <- names(frame)
+    if (!is.null(resp <- attr(attr(frame, "terms"), "response"))) {
+        vars <- vars[-resp]
+        x <- frame[[resp]]
+        pos <- is.na(x)
+        if (any(pos)) {
+            frame <- frame[!pos, , drop = FALSE]
+            warning(paste(sum(pos), "observations omitted due to missing values in the response"))
+        }
+    }
+    for (j in vars) {  #j is variable names
+        x <- frame[[j]]
+        pos <- is.na(x)
+        if (any(pos)) {
+            if (length(levels(x))) {   # factors
+                xx <- as.character(x)
+                xx[pos] <- "NA"
+                x <- factor(xx, exclude = NULL)
+            }
+            else if (is.matrix(x)) {   # matrices
+                ats <- attributes(x)
+                x.na <- 1*pos
+#               x[pos] <- 0
+                w <- !pos
+                n <- nrow(x)
+                TT <- array(1, c(1, n))
+                xbar <- (TT %*% x)/(TT %*% w)
+                xbar <- t(TT) %*% xbar
+                x[pos] <- xbar[pos]
+                attributes(x) <- ats
+                attributes(x.na) <- ats
+                dimnames(x.na)[[2]]=paste(dimnames(x)[[2]],".na",sep='')
+                frame[[paste(j,".na",sep='')]] <- x.na 
+            } else {   # ordinary numerical vector
+                ats <- attributes(x)
+                x[pos] <- mean(x[!pos])
+#               x[pos] <- 0
+                x.na <- 1*pos
+                frame[[paste(j,".na",sep='')]] <- x.na 
+                attributes(x) <- ats
+            }
+            frame[[j]] <- x
+        }
+    }
+    frame
+}
+amidata.na <- na.convert.mean(amidata)
+amidata.na$fDIAGNOSIS = as.factor(amidata.na$DIAGNOSIS)
+amidata.na$fSEX = as.factor(amidata.na$SEX)
+amidata.na$fDRG = as.factor(amidata.na$DRG)
+amidata.na$fDIED = as.factor(amidata.na$DIED)
+
+hist(amidata.na$LOS)
+hist(amidata.na$CHARGES)
+hist(amidata.na$AGE)
+
+amidata.na$sqrtCHARGES <- sqrt(amidata.na$CHARGES)
+for (i in 1:12844){
+  if (amidata.na$LOS[i] == 0){
+    amidata.na$LOS[i] <- 0.001
+  }
+}
+amidata.na$sqrtLOS <- sqrt(amidata.na$LOS)
+
+glm.amidata.gamma.no_interactions <- glm(LOS ~ fDIAGNOSIS + fSEX + fDRG + fDIED + sqrtCHARGES + AGE, family = Gamma(log), data = amidata.na)
+
+step(glm.amidata.gamma.no_interactions, direction = "both")
+
+glm.amidata.gammaFINAL.no_interactions <- glm(LOS ~ fDIAGNOSIS + fSEX + fDRG + sqrtCHARGES + AGE, family = Gamma(log), data = amidata.na)
+
+glm.amidata.gaussian.no_interactions <- glm(sqrtLOS ~ fDIAGNOSIS + fSEX + fDRG + fDIED + sqrtCHARGES + AGE, family = gaussian, data = amidata.na)
+
+step(glm.amidata.gaussian.no_interactions, direction = "both")
+
+glm.amidata.gaussianFINAL.no_interactions <- glm(sqrtLOS ~ fDIAGNOSIS + fSEX + fDRG + sqrtCHARGES + AGE, family = gaussian, data = amidata.na)
+
+plot(cooks.distance(glm.amidata.gammaFINAL.no_interactions), type="h", lwd=2)
+plot(cooks.distance(glm.amidata.gaussianFINAL.no_interactions), type="h", lwd=2)
+
+glm.amidata.gammaFULL <- glm(LOS ~ fDIAGNOSIS + fSEX + fDRG + sqrtCHARGES + AGE + fDIAGNOSIS:fSEX + fDIAGNOSIS:fDRG + fDIAGNOSIS:sqrtCHARGES + fDIAGNOSIS:AGE + fSEX:fDRG + fSEX:sqrtCHARGES + fSEX:AGE + fDRG:sqrtCHARGES + fDRG:AGE + sqrtCHARGES:AGE, family = Gamma(log), data = amidata.na)
+
+step(glm.amidata.gammaFULL, direction = "both")
+
+glm.amidata.gammaFINAL <- glm(LOS ~ fDIAGNOSIS + fSEX + fDRG + sqrtCHARGES + AGE + fDIAGNOSIS:sqrtCHARGES + fSEX:sqrtCHARGES + fSEX:AGE + fDRG:sqrtCHARGES + fDRG:AGE + sqrtCHARGES:AGE, family = Gamma(log), data = amidata.na)
+
+glm.amidata.gaussianFULL <- glm(sqrtLOS ~ fDIAGNOSIS + fSEX + fDRG + sqrtCHARGES + AGE + fDIAGNOSIS:fSEX + fDIAGNOSIS:fDRG + fDIAGNOSIS:sqrtCHARGES + fDIAGNOSIS:AGE + fSEX:fDRG + fSEX:sqrtCHARGES + fSEX:AGE + fDRG:sqrtCHARGES + fDRG:AGE + sqrtCHARGES:AGE, family = gaussian, data = amidata.na)
+
+step(glm.amidata.gaussianFULL, direction = "both")
+
+glm.amidata.gaussianFINAL <- glm(sqrtLOS ~ fDIAGNOSIS + fSEX + fDRG + sqrtCHARGES + AGE + fSEX:sqrtCHARGES + fSEX:AGE + fDRG:sqrtCHARGES + fDRG:AGE + sqrtCHARGES:AGE, family = gaussian, data = amidata.na)
+
+n = nrow(amidata.na)
+
+amidata.na$predictGamma <- amidata.na$LOS
+amidata.na$diffGamma <- amidata.na$LOS
+
+for (i in 1:n){
+  subject = data.frame(fDIAGNOSIS=amidata.na$fDIAGNOSIS[i], fSEX=amidata.na$fSEX[i], fDRG=amidata.na$fDRG[i], sqrtCHARGES=amidata.na$sqrtCHARGES[i], AGE=amidata.na$AGE[i])
+  amidata.na$predictGamma[i] = predict(glm.amidata.gammaFINAL, newdata=subject)
+}
+
+for (i in 1:n){
+  amidata.na$diffGamma[i] <- abs(amidata.na$LOS[i] - amidata.na$predictGamma[i])
+}
+
+sum(amidata.na$predictGamma)/n
+
+amidata.na$predictGaussian <- amidata.na$LOS
+amidata.na$diffGaussian <- amidata.na$LOS
+
+for (i in 1:n){
+  subject = data.frame(fDIAGNOSIS=amidata.na$fDIAGNOSIS[i], fSEX=amidata.na$fSEX[i], fDRG=amidata.na$fDRG[i], sqrtCHARGES=amidata.na$sqrtCHARGES[i], AGE=amidata.na$AGE[i])
+  amidata.na$predictGaussian[i] = predict(glm.amidata.gaussianFINAL, newdata=subject)
+}
+
+for (i in 1:n){
+  amidata.na$diffGaussian[i] <- abs(amidata.na$LOS[i] - amidata.na$predictGaussian[i])
+}
+
+sum(amidata.na$predictGaussian)/n
+```
